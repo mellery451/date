@@ -313,9 +313,12 @@ void test_constexpr()
   CONSTCD11 auto d = get_units<char>(std::ratio<86400>{});
   (void)min, (void)h, (void)d;
 
+#if !defined(_MSC_VER) || (_MSC_VER > 1923)  // insufficient constexpr
+                                             // might need increase min ver
   CONSTCD14 auto integer = get_units<char>(std::ratio<123>{});
   CONSTCD14 auto ratio = get_units<char>(std::ratio<123, 3>{});
   (void)integer, (void)ratio;
+#endif
 }
 
 int

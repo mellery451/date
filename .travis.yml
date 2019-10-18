@@ -4,6 +4,7 @@ env:
   global:
     - CMAKE_EXTRA_CONF="-DCOMPILE_WITH_C_LOCALE=ON"
     - CTEST_OUTPUT_ON_FAILURE=1
+    - BLD_TYPE=Debug
 
 matrix:
   include:
@@ -127,10 +128,24 @@ matrix:
       osx_image: xcode11
       name: xcode11
 
+    # windows
+    - &windows
+      name: windows
+      cache: false
+      os: windows
+      env:
+        - CMAKE_EXTRA_CONF="-GNinja -DUSE_SYSTEM_TZ_DB=ON -DCMAKE_CXX_STANDARD=14"
+        - MATRIX_EVAL="CC=cl.exe && CXX=cl.exe"
+      install:
+        - choco upgrade cmake.install
+        - choco install ninja curl visualstudio2017-workload-vctools -y
+        - choco install visualstudio2019buildtools visualstudio2019community visualstudio2019-workload-vctools -y
+      before_script:
+        - . ./ci/setup-msvc.sh
+
 before_install:
   - eval "${MATRIX_EVAL}"
-  - ci/install_cmake.sh 3.15.2
-  - export OPENSSL_ROOT=$(brew --prefix openssl@1.1)
+  - if [[ -z ${COMSPEC:-} ]]; then ci/install_cmake.sh 3.15.2; fi
   - if [ "$(uname)" = "Darwin" ] ; then export PATH="$HOME/cmake/CMake.app/Contents/bin:${PATH}"; fi
   - if [ "$(uname)" = "Linux" ] ; then export PATH="$HOME/cmake/bin:${PATH}"; fi
 
@@ -141,7 +156,7 @@ cache:
 script:
   - mkdir -p build
   - cd build
-  - eval cmake -DENABLE_DATE_TESTING=ON -DBUILD_SHARED_LIBS=ON ${CMAKE_EXTRA_CONF} ..
-  - cmake --build . --parallel
-  - cmake --build . --parallel --target testit
+  - eval cmake -DCMAKE_BUILD_TYPE=${BLD_TYPE} -DENABLE_DATE_TESTING=ON -DBUILD_SHARED_LIBS=ON ${CMAKE_EXTRA_CONF} ..
+  - cmake --build . --parallel --config Debug
+  - cmake --build . --parallel --target testit --config Debug
 

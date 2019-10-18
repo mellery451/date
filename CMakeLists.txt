@@ -163,73 +163,60 @@ install( EXPORT dateConfig
    testing
 #]===================================================================]
 if( ENABLE_DATE_TESTING )
+    set (CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/test ${CMAKE_MODULE_PATH})
+    include(compile_fail)
+
     enable_testing( )
 
-    add_custom_target( testit COMMAND ${CMAKE_CTEST_COMMAND} )
+    add_custom_target( testit
+        COMMAND ${CMAKE_CTEST_COMMAND} -C $<CONFIG>
+        --build-generator ${CMAKE_GENERATOR}
+        $<$<BOOL:${CMAKE_VERBOSE_MAKEFILE}>:-V>)
     add_dependencies( testit tz )
+    get_property( IS_MULTICONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG )
+    if( IS_MULTICONFIG STREQUAL "NOTFOUND" )
+        if( ${CMAKE_GENERATOR} STREQUAL "Xcode" OR ${CMAKE_GENERATOR} MATCHES "^Visual Studio" )
+            set (IS_MULTICONFIG TRUE)
+        endif ()
+    endif ()
+    get_target_property( TZ_LIBDIR tz BINARY_DIR )
+    if( IS_MULTICONFIG )
+        add_custom_target( copytz
+            COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:tz> ${TZ_LIBDIR})
+        add_dependencies( testit copytz )
+    endif( )
 
-    function( add_pass_tests TEST_GLOB TEST_PREFIX )
-        file( GLOB_RECURSE FILENAMES ${TEST_GLOB} )
+    file( GLOB_RECURSE ALL_TEST_SOURCES
+        LIST_DIRECTORIES false
+        RELATIVE "${PROJECT_SOURCE_DIR}/test"
+        "${PROJECT_SOURCE_DIR}/test/*.cpp" )
+    foreach( TEST_SRC ${ALL_TEST_SOURCES} )
+        get_filename_component( TEST_NAME ${TEST_SRC} NAME_WE )
+        get_filename_component( TEST_EXT ${TEST_SRC} EXT )
+        get_filename_component( TEST_PREFIX ${TEST_SRC} DIRECTORY )
+        string( REPLACE "/" "_"  TEST_PREFIX "${TEST_PREFIX}" )
+        string( REPLACE "\\" "_"  TEST_PREFIX "${TEST_PREFIX}" )
+        set( TEST_SRC_FULL "${PROJECT_SOURCE_DIR}/test/${TEST_SRC}" )
 
-        foreach( TEST_FILE ${FILENAMES} )
-            get_filename_component( TEST_NAME ${TEST_FILE} NAME_WE )
-            get_filename_component( TEST_EXT ${TEST_FILE} EXT )
-            if( NOT ${TEST_EXT} STREQUAL ".fail.cpp" )
-                set( PREFIX "${TEST_PREFIX}_pass_${TEST_NAME}" )
-                set( BIN_NAME ${PREFIX}_bin )
-                set( TST_NAME ${PREFIX}_test )
-                add_executable( ${BIN_NAME} EXCLUDE_FROM_ALL ${TEST_FILE} )
-                add_test( ${TST_NAME} ${BIN_NAME} )
-                target_link_libraries( ${BIN_NAME} tz )
-                # HACK: because the test files don't use FQ includes:
-                target_include_directories( ${BIN_NAME} PRIVATE include/date )
-                add_dependencies( testit ${BIN_NAME} )
-            endif( )
-        endforeach( )
-    endfunction( )
-
-    function( add_fail_tests TEST_GLOB TEST_PREFIX )
-        file( GLOB_RECURSE FILENAMES ${TEST_GLOB} )
-
-        foreach( TEST_FILE ${FILENAMES} )
-            get_filename_component( TEST_NAME ${TEST_FILE} NAME_WE )
-            get_filename_component( TEST_EXT ${TEST_FILE} EXT )
-
-            set( TEST_TYPE "_fail" )
-
-            set( PREFIX "${TEST_PREFIX}_fail_${TEST_NAME}" )
-            set( BIN_NAME ${PREFIX}_bin )
-            set( TST_NAME ${PREFIX}_test )
-
-            set( TEST_BIN_NAME ${CMAKE_BINARY_DIR}/${BIN_NAME} )
-            add_custom_target( ${BIN_NAME}
-                COMMAND
-                    ${PROJECT_SOURCE_DIR}/compile_fail.sh
-                    ${TEST_BIN_NAME}
-                    ${CMAKE_CXX_COMPILER}
-                    -std=c++14
-                    -L${CMAKE_BINARY_DIR}/
-                    -ltz
-                    -I${PROJECT_SOURCE_DIR}/include
-                    -I${PROJECT_SOURCE_DIR}/include/date
-                    -o ${BIN_NAME}
-                    ${TEST_FILE}
-                WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-                COMMENT ${TST_NAME} )
-            add_test( ${TST_NAME} "${PROJECT_SOURCE_DIR}/test_fail.sh" ${CMAKE_BINARY_DIR}/${BIN_NAME} WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/" )
-            #set_tests_properties( ${TST_NAME} PROPERTIES WILL_FAIL TRUE)
-            add_dependencies( testit ${BIN_NAME} )
-        endforeach( )
-    endfunction( )
-
-    file( GLOB children RELATIVE "${PROJECT_SOURCE_DIR}/test" "${PROJECT_SOURCE_DIR}/test/*" )
-    foreach( child ${children} )
-        if( IS_DIRECTORY "${PROJECT_SOURCE_DIR}/test/${child}" )
-            set( CUR_FOLDER "${PROJECT_SOURCE_DIR}/test/${child}" )
-            add_pass_tests( "${CUR_FOLDER}/*.cpp" ${child} )
-            if( NOT WIN32 )
-                add_fail_tests( "${CUR_FOLDER}/*.fail.cpp" ${child} )
-            endif( )
+        if( ${TEST_EXT} STREQUAL ".fail.cpp" )
+            set( TEST_NAME "${TEST_PREFIX}_fail_${TEST_NAME}" )
+            add_compile_failure_test( NAME ${TEST_NAME}_test
+                SOURCE ${TEST_SRC_FULL}
+                INCLUDE_DIRECTORIES "${PROJECT_SOURCE_DIR}/include/date" "${PROJECT_SOURCE_DIR}/include"
+                LINK_DIRECTORIES "${TZ_LIBDIR}"
+                LINK_LIBRARIES tz
+                CMAKE_EXTRA "-DCMAKE_CXX_STANDARD=14"
+            )
+            add_dependencies( testit ${TEST_NAME}_test )
+        else( )
+            set( TEST_NAME "${TEST_PREFIX}_pass_${TEST_NAME}" )
+            add_executable( ${TEST_NAME}_bin EXCLUDE_FROM_ALL ${TEST_SRC_FULL} )
+            add_test( ${TEST_NAME}_test ${TEST_NAME}_bin )
+            target_link_libraries( ${TEST_NAME}_bin tz )
+            # HACK: because the test sources don't all use
+            # fully-qualified includes:
+            target_include_directories( ${TEST_NAME}_bin PRIVATE include/date )
+            add_dependencies( testit ${TEST_NAME}_bin )
         endif( )
     endforeach( )
 endif( )
